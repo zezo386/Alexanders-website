@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Log in · Attendance</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="card">
+      <h1>Welcome back</h1>
+      <p class="sub">Log in to access your dashboard.</p>
+
+      <label for="username">Username</label>
+      <input id="username" autocomplete="username" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="current-password" />
+
+      <button id="loginBtn">Log in</button>
+
+      <div id="msg" class="msg"></div>
+
+      <p class="sub" style="margin-top:1.25rem;text-align:center;">
+        No account? <a href="/static/signup.html">Request access</a>
+      </p>
+    </div>
+  </div>
+
+  <script type="module" src="login.js"></script>
+</body>
+</html>

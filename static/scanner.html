@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Scanner · Attendance</title>
+  <link rel="stylesheet" href="style.css"/>
+  <style>
+    #reader {
+      width: 100%;
+      margin-top: 1rem;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+      display: none;
+    }
+    #reader.active { display: block; }
+    #reader video { border-radius: 12px; }
+
+    .history {
+      margin-top: 1rem;
+      font-size: .85rem;
+      color: var(--muted);
+      max-height: 220px;
+      overflow-y: auto;
+      border-top: 1px solid var(--border);
+    }
+    .history div {
+      padding: .5rem 0;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      gap: .5rem;
+      align-items: center;
+    }
+    .history code {
+      color: var(--accent);
+      font-size: .75rem;
+      word-break: break-all;
+    }
+    .history .icon { margin-right: .4rem; }
+  </style>
+</head>
+<body>
+  <div id="navbar"></div>
+
+  <div class="container" style="max-width:640px;">
+    <div class="card">
+      <h1 style="margin:0 0 .25rem 0;">Scan attendance</h1>
+      <p class="sub">Pick an event, then scan attendee QR codes.</p>
+
+      <label for="eventSelect">Event</label>
+      <select id="eventSelect">
+        <option value="">Loading events…</option>
+      </select>
+
+      <button id="scanBtn" disabled>Start scanning</button>
+
+      <div id="reader"></div>
+
+      <div id="status" class="msg"></div>
+
+      <div class="history" id="history"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/html5-qrcode@2.3.8/html5-qrcode.min.js"></script>
+  <script type="module" src="scanner.js"></script>
+</body>
+</html>

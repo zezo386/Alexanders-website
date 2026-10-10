@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin · Attendance</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div id="navbar"></div>
+
+  <div class="container">
+    <div class="admin-grid">
+
+      <div class="panel" style="grid-column: 1 / -1;">
+        <h3><span class="dot"></span> Pending sign-ups</h3>
+        <table>
+          <thead>
+            <tr>
+              <th>Username</th>
+              <th>Requested</th>
+              <th>Interview</th>
+              <th style="width:280px;">Actions</th>
+            </tr>
+          </thead>
+          <tbody id="pendingBody">
+            <tr><td colspan="4" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h3><span class="dot"></span> Users</h3>
+        <table>
+          <thead>
+            <tr><th>Username</th><th>Role</th></tr>
+          </thead>
+          <tbody id="usersBody">
+            <tr><td colspan="2" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h3><span class="dot"></span> Events</h3>
+        <label for="eventName">New event</label>
+        <input id="eventName" placeholder="e.g. Workshop #3" />
+        <button id="createEventBtn">Create event</button>
+
+        <table style="margin-top:1rem;">
+          <thead>
+            <tr><th>#</th><th>Name</th></tr>
+          </thead>
+          <tbody id="eventsBody">
+            <tr><td colspan="2" class="empty">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="panel">
+        <h3><span class="dot"></span> Attendance export</h3>
+        <p class="sub" style="margin-bottom:1rem;">
+          Download the full attendance matrix as CSV.
+        </p>
+        <button id="exportBtn" class="ghost">Download CSV</button>
+      </div>
+
+    </div>
+    <div class="panel">
+      <h3><span class="dot"></span> Attendance scanner</h3>
+      <p class="sub" style="margin-bottom:1rem;">
+        Open the camera to scan attendee QR codes.
+      </p>
+      <a href="/static/scanner.html">
+        <button>Open scanner</button>
+      </a>
+    </div>
+
+    <div id="msg" class="msg" style="margin-top:1.25rem;"></div>
+  </div>
+
+  <script type="module" src="admin.js"></script>
+</body>
+</html>

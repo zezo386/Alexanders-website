@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Request access · Attendance</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+  <div class="auth-container">
+    <div class="card" id="formCard">
+      <h1>Request access</h1>
+      <p class="sub">Your request will be reviewed by an admin.</p>
+
+      <label for="username">Username</label>
+      <input id="username" autocomplete="username" />
+
+      <label for="password">Password</label>
+      <input id="password" type="password" autocomplete="new-password" />
+
+      <label for="password2">Confirm password</label>
+      <input id="password2" type="password" autocomplete="new-password" />
+
+      <button id="signupBtn">Submit request</button>
+      <div id="msg" class="msg"></div>
+
+      <p class="sub" style="margin-top:1.25rem;text-align:center;">
+        Already have an account? <a href="/static/index.html">Log in</a>
+      </p>
+    </div>
+
+    <div class="card" id="doneCard" style="display:none;">
+      <h1>Request received</h1>
+      <p class="sub">
+        An admin will contact you to schedule an interview.
+        You'll be able to log in once approved.
+      </p>
+      <a href="/static/index.html"><button class="ghost">Back to login</button></a>
+    </div>
+  </div>
+
+  <script type="module" src="signup.js"></script>
+</body>
+</html>
