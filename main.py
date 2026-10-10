@@ -440,19 +440,19 @@ def export_csv(_admin: dict = Depends(admin_user)):
     )
 
 
-STATIC_DIR = "static"
+WEB_DIR = "frontend"
 
-if os.path.isdir(STATIC_DIR):
-    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+if os.path.isdir(WEB_DIR):
+    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
     @app.get("/")
     def root():
-        return FileResponse(f"{STATIC_DIR}/index.html")
+        return FileResponse(f"{WEB_DIR}/index.html")
 else:
     @app.get("/")
     def root():
         return {
-            "error": f"Static directory '{STATIC_DIR}' not found",
+            "error": f"Static directory '{WEB_DIR}' not found",
             "cwd": os.getcwd(),
             "listing": os.listdir("."),
         }
