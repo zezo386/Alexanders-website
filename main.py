@@ -13,6 +13,9 @@ from auth import create_token, hash_password, verify_password
 from setup import get_conn, setup
 from deps import admin_user, current_user
 
+import mimetypes
+mimetypes.add_type("application/javascript", ".js", True)
+
 app = FastAPI(title="Attendance Scanner")
 
 app.add_middleware(
@@ -399,12 +402,11 @@ def export_csv(_admin: dict = Depends(admin_user)):
         headers={"Content-Disposition": "attachment; filename=attendance.csv"},
     )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
+app.mount("/static", StaticFiles(directory="public"), name="static")
 
 @app.get("/")
 def root():
-    return FileResponse("static/index.html")
+    return FileResponse("public/index.html")
 
 if __name__ == "__main__":
     import uvicorn
