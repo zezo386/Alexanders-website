@@ -1,6 +1,7 @@
 import csv
 import io
 import uuid
+from contextlib import asynccontextmanager
 
 import qrcode
 from fastapi import Depends, FastAPI, HTTPException
@@ -8,19 +9,31 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from qrcode.constants import ERROR_CORRECT_H
 
 from auth import create_token, hash_password, verify_password
-from setup import get_conn, setup
 from deps import admin_user, current_user
+from setup import get_conn, setup
 
-import mimetypes
-mimetypes.add_type("application/javascript", ".js", True)
 
-app = FastAPI(title="Attendance Scanner")
+# =========================================================
+# App + lifespan
+# =========================================================
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Runs on cold start. Creates tables if they don't exist.
+    # If the DB is unreachable, this raises and the function fails
+    # with a clear error in Vercel's Runtime Logs.
+    setup()
+    yield
+
+
+app = FastAPI(title="Attendance Scanner", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],   # tighten in production
+    allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -50,7 +63,13 @@ class AttendRequest(BaseModel):
 
 
 class ScheduleRequest(BaseModel):
-    interview_at: str  # ISO-8601 string
+    interview_at: str  # ISO-8601
+
+
+class AdminCreateUserRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=40)
+    password: str = Field(min_length=4)
+    role: str = "user"
 
 
 # =========================================================
@@ -59,25 +78,22 @@ class ScheduleRequest(BaseModel):
 
 @app.post("/signup")
 def signup(req: SignupRequest):
-    """
-    Public endpoint. Creates a row in pending_users for admin review.
-    Does NOT create a user account.
-    """
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM users WHERE username = ?", (req.username,))
-        if cur.fetchone() is not None:
-            raise HTTPException(409, "Username already taken")
-        cur.execute("SELECT 1 FROM pending_users WHERE username = ?", (req.username,))
-        if cur.fetchone() is not None:
-            raise HTTPException(409, "Username already taken")
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE username = %s", (req.username,))
+            if cur.fetchone() is not None:
+                raise HTTPException(409, "Username already taken")
+            cur.execute("SELECT 1 FROM pending_users WHERE username = %s", (req.username,))
+            if cur.fetchone() is not None:
+                raise HTTPException(409, "Username already taken")
 
-        user_id = str(uuid.uuid4())
-        cur.execute(
-            "INSERT INTO pending_users (username, id, password_hash) VALUES (?, ?, ?)",
-            (req.username, user_id, hash_password(req.password)),
-        )
+            user_id = str(uuid.uuid4())
+            cur.execute(
+                "INSERT INTO pending_users (username, id, password_hash) "
+                "VALUES (%s, %s, %s)",
+                (req.username, user_id, hash_password(req.password)),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -88,12 +104,12 @@ def signup(req: SignupRequest):
 def login(req: LoginRequest):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT id, username, password_hash, role FROM users WHERE username = ?",
-            (req.username,),
-        )
-        row = cur.fetchone()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, password_hash, role FROM users WHERE username = %s",
+                (req.username,),
+            )
+            row = cur.fetchone()
     finally:
         conn.close()
 
@@ -119,12 +135,12 @@ def login(req: LoginRequest):
 def me(user: dict = Depends(current_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT created_at FROM users WHERE id = ?",
-            (user["sub"],),
-        )
-        row = cur.fetchone()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT created_at FROM users WHERE id = %s",
+                (user["sub"],),
+            )
+            row = cur.fetchone()
     finally:
         conn.close()
     return {
@@ -143,16 +159,17 @@ def me(user: dict = Depends(current_user)):
 def admin_list_pending(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT id, username, requested_at, interview_at, status
-            FROM pending_users
-            WHERE status = 'pending'
-            ORDER BY requested_at
-        """)
-        return [dict(r) for r in cur.fetchall()]
+        with conn.cursor() as cur:
+            cur.execute("""
+                SELECT id, username, requested_at, interview_at, status
+                FROM pending_users
+                WHERE status = 'pending'
+                ORDER BY requested_at
+            """)
+            rows = cur.fetchall()
     finally:
         conn.close()
+    return rows
 
 
 @app.post("/admin/pending/{pending_id}/schedule")
@@ -163,18 +180,18 @@ def admin_schedule(
 ):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT 1 FROM pending_users WHERE id = ? AND status = 'pending'",
-            (pending_id,),
-        )
-        if cur.fetchone() is None:
-            raise HTTPException(404, "Pending user not found")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM pending_users WHERE id = %s AND status = 'pending'",
+                (pending_id,),
+            )
+            if cur.fetchone() is None:
+                raise HTTPException(404, "Pending user not found")
 
-        cur.execute(
-            "UPDATE pending_users SET interview_at = ? WHERE id = ?",
-            (req.interview_at, pending_id),
-        )
+            cur.execute(
+                "UPDATE pending_users SET interview_at = %s WHERE id = %s",
+                (req.interview_at, pending_id),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -185,25 +202,25 @@ def admin_schedule(
 def admin_approve(pending_id: str, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "SELECT username, password_hash FROM pending_users "
-            "WHERE id = ? AND status = 'pending'",
-            (pending_id,),
-        )
-        row = cur.fetchone()
-        if row is None:
-            raise HTTPException(404, "Pending user not found")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT username, password_hash FROM pending_users "
+                "WHERE id = %s AND status = 'pending'",
+                (pending_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                raise HTTPException(404, "Pending user not found")
 
-        cur.execute(
-            "INSERT INTO users (username, id, password_hash, role) "
-            "VALUES (?, ?, ?, 'user')",
-            (row["username"], pending_id, row["password_hash"]),
-        )
-        cur.execute(
-            "UPDATE pending_users SET status = 'approved' WHERE id = ?",
-            (pending_id,),
-        )
+            cur.execute(
+                "INSERT INTO users (username, id, password_hash, role) "
+                "VALUES (%s, %s, %s, 'user')",
+                (row["username"], pending_id, row["password_hash"]),
+            )
+            cur.execute(
+                "UPDATE pending_users SET status = 'approved' WHERE id = %s",
+                (pending_id,),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -214,12 +231,12 @@ def admin_approve(pending_id: str, _admin: dict = Depends(admin_user)):
 def admin_reject(pending_id: str, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute(
-            "UPDATE pending_users SET status = 'rejected' "
-            "WHERE id = ? AND status = 'pending'",
-            (pending_id,),
-        )
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE pending_users SET status = 'rejected' "
+                "WHERE id = %s AND status = 'pending'",
+                (pending_id,),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -230,21 +247,18 @@ def admin_reject(pending_id: str, _admin: dict = Depends(admin_user)):
 # Admin — users
 # =========================================================
 
-class AdminCreateUserRequest(BaseModel):
-    username: str = Field(min_length=1, max_length=40)
-    password: str = Field(min_length=4)
-    role: str = "user"
-
-
 @app.get("/users")
 def list_users(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, username, role, created_at FROM users ORDER BY username")
-        return [dict(r) for r in cur.fetchall()]
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT id, username, role, created_at FROM users ORDER BY username"
+            )
+            rows = cur.fetchall()
     finally:
         conn.close()
+    return rows
 
 
 @app.post("/admin/users")
@@ -256,19 +270,19 @@ def admin_create_user(
         raise HTTPException(400, "role must be 'user' or 'admin'")
 
     user_id = str(uuid.uuid4())
-    pw_hash = hash_password(req.password)
 
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM users WHERE username = ?", (req.username,))
-        if cur.fetchone() is not None:
-            raise HTTPException(409, "Username already taken")
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE username = %s", (req.username,))
+            if cur.fetchone() is not None:
+                raise HTTPException(409, "Username already taken")
 
-        cur.execute(
-            "INSERT INTO users (username, id, password_hash, role) VALUES (?, ?, ?, ?)",
-            (req.username, user_id, pw_hash, req.role),
-        )
+            cur.execute(
+                "INSERT INTO users (username, id, password_hash, role) "
+                "VALUES (%s, %s, %s, %s)",
+                (req.username, user_id, hash_password(req.password), req.role),
+            )
         conn.commit()
     finally:
         conn.close()
@@ -283,21 +297,26 @@ def admin_create_user(
 def list_events():
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, name FROM events ORDER BY id")
-        return [dict(r) for r in cur.fetchall()]
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, name FROM events ORDER BY id")
+            rows = cur.fetchall()
     finally:
         conn.close()
+    return rows
 
 
 @app.post("/events")
 def create_event(req: EventRequest, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("INSERT INTO events (name) VALUES (?)", (req.name,))
+        with conn.cursor() as cur:
+            # Postgres uses RETURNING instead of lastrowid
+            cur.execute(
+                "INSERT INTO events (name) VALUES (%s) RETURNING id",
+                (req.name,),
+            )
+            event_id = cur.fetchone()["id"]
         conn.commit()
-        event_id = cur.lastrowid
     finally:
         conn.close()
     return {"name": req.name, "id": event_id}
@@ -307,38 +326,41 @@ def create_event(req: EventRequest, _admin: dict = Depends(admin_user)):
 # QR codes
 # =========================================================
 
+ROLE_COLORS = {
+    "admin": "#4f9cf9",
+    "user":  "#059669",
+}
+
+
 @app.get("/qrcode/{user_id}")
 def get_qrcode(user_id: str, user: dict = Depends(current_user)):
-    """
-    Returns the QR PNG for a given user.
-    Allowed if the caller is admin, or if the caller is the user themselves.
-    """
     if user["role"] != "admin" and user["sub"] != user_id:
         raise HTTPException(403, "You can only view your own QR code")
 
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM users WHERE id = ?", (user_id,))
-        if cur.fetchone() is None:
-            raise HTTPException(404, "User not found")
+        with conn.cursor() as cur:
+            cur.execute("SELECT role FROM users WHERE id = %s", (user_id,))
+            row = cur.fetchone()
     finally:
         conn.close()
 
-    qr = qrcode.QRCode(
-        version = None,
-        error_correction = qrcode.constants.ERROR_CORRECT_H,
-        box_size = 10,
-        border = 4
-    )
+    if row is None:
+        raise HTTPException(404, "User not found")
 
+    fill = ROLE_COLORS.get(row["role"], "#0f1729")
+
+    qr = qrcode.QRCode(
+        version=None,
+        error_correction=ERROR_CORRECT_H,
+        box_size=10,
+        border=4,
+    )
     qr.add_data(user_id)
     qr.make(fit=True)
 
-    img = qr.make_image(
-        fill_color="#4f9cf9",
-        back_color="white",
-    )
+    img = qr.make_image(fill_color=fill, back_color="white")
+
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     buf.seek(0)
@@ -348,38 +370,52 @@ def get_qrcode(user_id: str, user: dict = Depends(current_user)):
         headers={"Cache-Control": "no-store"},
     )
 
+
+# =========================================================
+# Attendance
+# =========================================================
+
 @app.post("/attend")
 def attend(req: AttendRequest, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT 1 FROM users WHERE id = ?", (req.user_id,))
-        if cur.fetchone() is None:
-            raise HTTPException(404, "User not found")
-        cur.execute("SELECT 1 FROM events WHERE id = ?", (req.event_id,))
-        if cur.fetchone() is None:
-            raise HTTPException(404, "Event not found")
+        with conn.cursor() as cur:
+            cur.execute("SELECT 1 FROM users WHERE id = %s", (req.user_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(404, "User not found")
+            cur.execute("SELECT 1 FROM events WHERE id = %s", (req.event_id,))
+            if cur.fetchone() is None:
+                raise HTTPException(404, "Event not found")
 
-        cur.execute(
-            "INSERT OR IGNORE INTO attendance (user_id, event_id) VALUES (?, ?)",
-            (req.user_id, req.event_id),
-        )
+            # Postgres equivalent of INSERT OR IGNORE
+            cur.execute(
+                "INSERT INTO attendance (user_id, event_id) VALUES (%s, %s) "
+                "ON CONFLICT (user_id, event_id) DO NOTHING",
+                (req.user_id, req.event_id),
+            )
         conn.commit()
     finally:
         conn.close()
     return {"status": "attended", "user_id": req.user_id, "event_id": req.event_id}
 
+
+# =========================================================
+# Export
+# =========================================================
+
 @app.get("/export")
 def export_csv(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
-        cur = conn.cursor()
-        cur.execute("SELECT id, username FROM users ORDER BY username")
-        users = cur.fetchall()
-        cur.execute("SELECT id, name FROM events ORDER BY id")
-        events = cur.fetchall()
-        cur.execute("SELECT user_id, event_id FROM attendance")
-        attended = {(r["user_id"], r["event_id"]) for r in cur.fetchall()}
+        with conn.cursor() as cur:
+            cur.execute("SELECT id, username FROM users ORDER BY username")
+            users = cur.fetchall()
+
+            cur.execute("SELECT id, name FROM events ORDER BY id")
+            events = cur.fetchall()
+
+            cur.execute("SELECT user_id, event_id FROM attendance")
+            attended = {(r["user_id"], r["event_id"]) for r in cur.fetchall()}
     finally:
         conn.close()
 
@@ -402,17 +438,14 @@ def export_csv(_admin: dict = Depends(admin_user)):
         headers={"Content-Disposition": "attachment; filename=attendance.csv"},
     )
 
+
+# =========================================================
+# Static frontend
+# =========================================================
+
 app.mount("/static", StaticFiles(directory="public"), name="static")
+
 
 @app.get("/")
 def root():
     return FileResponse("public/index.html")
-
-if __name__ == "__main__":
-    import uvicorn
-
-    # Wipes and recreates tables on every launch.
-    # Remove this line in production, or gate it behind an env var.
-    setup()
-
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

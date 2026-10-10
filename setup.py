@@ -1,62 +1,84 @@
-import sqlite3 as sq
+import os
 
-DB_PATH = "database.db"
+import psycopg
+from psycopg.rows import dict_row
+
+
+def _database_url() -> str:
+    url = os.environ.get("DATABASE_URL")
+    if not url:
+        raise RuntimeError(
+            "DATABASE_URL is not set. "
+            "Add it in Vercel → Settings → Environment Variables, "
+            "or export it locally before running."
+        )
+    return url
 
 
 def get_conn():
-    conn = sq.connect(DB_PATH)
-    conn.row_factory = sq.Row
-    conn.execute("PRAGMA foreign_keys = ON")
-    return conn
+    """
+    Open a fresh connection. Neon's pooler handles connection reuse,
+    so we don't need our own pool object.
+    """
+    return psycopg.connect(
+        _database_url(),
+        row_factory=dict_row,
+        connect_timeout=10,
+        sslmode="require",  # Neon and most managed PG require SSL
+    )
 
 
 def setup():
+    """
+    Idempotent — safe to run on every cold start.
+    Uses CREATE TABLE IF NOT EXISTS, so running repeatedly does nothing.
+    """
     conn = get_conn()
-    cursor = conn.cursor()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS users (
+                    username      TEXT NOT NULL UNIQUE,
+                    id            TEXT NOT NULL PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    role          TEXT NOT NULL DEFAULT 'user',
+                    created_at    TIMESTAMPTZ DEFAULT NOW()
+                )
+            """)
 
-    cursor.execute("DROP TABLE IF EXISTS attendance")
-    cursor.execute("DROP TABLE IF EXISTS users")
-    cursor.execute("DROP TABLE IF EXISTS pending_users")
-    cursor.execute("DROP TABLE IF EXISTS events")
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS pending_users (
+                    username      TEXT NOT NULL UNIQUE,
+                    id            TEXT NOT NULL PRIMARY KEY,
+                    password_hash TEXT NOT NULL,
+                    requested_at  TIMESTAMPTZ DEFAULT NOW(),
+                    interview_at  TIMESTAMPTZ,
+                    status        TEXT NOT NULL DEFAULT 'pending'
+                )
+            """)
 
-    cursor.execute("""
-        CREATE TABLE users (
-            username      TEXT NOT NULL UNIQUE,
-            id            TEXT NOT NULL PRIMARY KEY,
-            password_hash TEXT NOT NULL,
-            role          TEXT NOT NULL DEFAULT 'user',
-            created_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS events (
+                    name TEXT NOT NULL,
+                    id   SERIAL PRIMARY KEY
+                )
+            """)
 
-    cursor.execute("""
-        CREATE TABLE pending_users (
-            username      TEXT NOT NULL UNIQUE,
-            id            TEXT NOT NULL PRIMARY KEY,
-            password_hash TEXT NOT NULL,
-            requested_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            interview_at  TIMESTAMP,
-            status        TEXT NOT NULL DEFAULT 'pending'
-        )
-    """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS attendance (
+                    user_id     TEXT NOT NULL REFERENCES users(id),
+                    event_id    INTEGER NOT NULL REFERENCES events(id),
+                    attended_at TIMESTAMPTZ DEFAULT NOW(),
+                    PRIMARY KEY (user_id, event_id)
+                )
+            """)
 
-    cursor.execute("""
-        CREATE TABLE events (
-            name TEXT NOT NULL,
-            id   INTEGER PRIMARY KEY AUTOINCREMENT
-        )
-    """)
+            # Index for the CSV export's join-heavy query
+            cur.execute("""
+                CREATE INDEX IF NOT EXISTS idx_attendance_event
+                ON attendance (event_id)
+            """)
 
-    cursor.execute("""
-        CREATE TABLE attendance (
-            user_id     TEXT NOT NULL,
-            event_id    INTEGER NOT NULL,
-            attended_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (user_id, event_id),
-            FOREIGN KEY (user_id)  REFERENCES users(id),
-            FOREIGN KEY (event_id) REFERENCES events(id)
-        )
-    """)
-
-    conn.commit()
-    conn.close()
+        conn.commit()
+    finally:
+        conn.close()
