@@ -1,4 +1,4 @@
-export const API_BASE = "http://127.0.0.1:8000";      // same-origin when served by FastAPI
+export const API_BASE = "";
 
 const TOKEN_KEY = "attendance.token";
 

@@ -3,6 +3,7 @@ import io
 import uuid
 import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 import qrcode
 from fastapi import Depends, FastAPI, HTTPException
@@ -439,20 +440,11 @@ def export_csv(_admin: dict = Depends(admin_user)):
         headers={"Content-Disposition": "attachment; filename=attendance.csv"},
     )
 
-
+BASE_DIR = Path(__file__).parent
 WEB_DIR = "frontend"
 
-if os.path.isdir(WEB_DIR):
-    app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
 
-    @app.get("/")
-    def root():
-        return FileResponse(f"{WEB_DIR}/index.html")
-else:
-    @app.get("/")
-    def root():
-        return {
-            "error": f"Static directory '{WEB_DIR}' not found",
-            "cwd": os.getcwd(),
-            "listing": os.listdir("."),
-        }
+@app.get("/")
+def root():
+    return FileResponse(f"{WEB_DIR}/index.html")
