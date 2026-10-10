@@ -1,6 +1,7 @@
 import csv
 import io
 import uuid
+import os
 from contextlib import asynccontextmanager
 
 import qrcode
@@ -439,13 +440,19 @@ def export_csv(_admin: dict = Depends(admin_user)):
     )
 
 
-# =========================================================
-# Static frontend
-# =========================================================
+STATIC_DIR = "static"
 
-app.mount("/static", StaticFiles(directory="public"), name="static")
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-
-@app.get("/")
-def root():
-    return FileResponse("public/index.html")
+    @app.get("/")
+    def root():
+        return FileResponse(f"{STATIC_DIR}/index.html")
+else:
+    @app.get("/")
+    def root():
+        return {
+            "error": f"Static directory '{STATIC_DIR}' not found",
+            "cwd": os.getcwd(),
+            "listing": os.listdir("."),
+        }
