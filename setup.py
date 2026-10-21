@@ -24,44 +24,50 @@ def get_conn():
     )
 
 
+def _add_column(cur, table: str, column: str, ddl_type: str, default_sql: str):
+    """
+    Add a column if it doesn't exist, backfill NULLs with `default_sql`,
+    then enforce NOT NULL. Idempotent — safe to run on every startup.
+    """
+    cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}")
+    cur.execute(f"UPDATE {table} SET {column} = {default_sql} WHERE {column} IS NULL")
+    cur.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL")
+
+
 def setup():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("DROP TABLE IF EXISTS users")
-            cur.execute("DROP TABLE IF EXISTS pending_users")
-            cur.execute("DROP TABLE IF EXISTS events")
-
-
+            # --- Create tables (fresh DBs) ---
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
-                    username      TEXT NOT NULL UNIQUE,
-                    id            TEXT NOT NULL PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    role          TEXT NOT NULL DEFAULT 'user',
-                    created_at    TIMESTAMPTZ DEFAULT NOW(),
-                    national_id   TEXT NOT NULL,
-                    college       TEXT NOT NULL,
-                    full_name     TEXT NOT NULL,
+                    username        TEXT NOT NULL UNIQUE,
+                    id              TEXT NOT NULL PRIMARY KEY,
+                    password_hash   TEXT NOT NULL,
+                    role            TEXT NOT NULL DEFAULT 'user',
+                    created_at      TIMESTAMPTZ DEFAULT NOW(),
+                    national_id     TEXT NOT NULL,
+                    college         TEXT NOT NULL,
+                    full_name       TEXT NOT NULL,
                     whatsapp_number TEXT NOT NULL,
-                    academic_year INTEGER NOT NULL,
-                    department TEXT NOT NULL DEFAULT 'OC',
+                    academic_year   INTEGER NOT NULL,
+                    department      TEXT NOT NULL DEFAULT 'OC'
                 )
             """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS pending_users (
-                    username      TEXT NOT NULL UNIQUE,
-                    id            TEXT NOT NULL PRIMARY KEY,
-                    password_hash TEXT NOT NULL,
-                    requested_at  TIMESTAMPTZ DEFAULT NOW(),
-                    interview_at  TIMESTAMPTZ,
-                    status        TEXT NOT NULL DEFAULT 'pending',
-                    national_id   TEXT NOT NULL,
-                    college       TEXT NOT NULL,
-                    full_name     TEXT NOT NULL,
+                    username        TEXT NOT NULL UNIQUE,
+                    id              TEXT NOT NULL PRIMARY KEY,
+                    password_hash   TEXT NOT NULL,
+                    requested_at    TIMESTAMPTZ DEFAULT NOW(),
+                    interview_at    TIMESTAMPTZ,
+                    status          TEXT NOT NULL DEFAULT 'pending',
+                    national_id     TEXT NOT NULL,
+                    college         TEXT NOT NULL,
+                    full_name       TEXT NOT NULL,
                     whatsapp_number TEXT NOT NULL,
-                    academic_year INTEGER NOT NULL,
+                    academic_year   INTEGER NOT NULL
                 )
             """)
 
@@ -69,7 +75,7 @@ def setup():
                 CREATE TABLE IF NOT EXISTS events (
                     name TEXT NOT NULL,
                     id   SERIAL PRIMARY KEY,
-                    date TIMESTAMPTZ DEFAULT NOW(),
+                    date TIMESTAMPTZ DEFAULT NOW()
                 )
             """)
 
@@ -87,6 +93,25 @@ def setup():
                 ON attendance (event_id)
             """)
 
+            _add_column(cur, "users", "national_id",     "TEXT",    "''")
+            _add_column(cur, "users", "college",         "TEXT",    "''")
+            _add_column(cur, "users", "full_name",       "TEXT",    "''")
+            _add_column(cur, "users", "whatsapp_number", "TEXT",    "''")
+            _add_column(cur, "users", "academic_year",   "INTEGER", "1")
+            _add_column(cur, "users", "department",      "TEXT",    "'OC'")
+
+            _add_column(cur, "pending_users", "national_id",     "TEXT",    "''")
+            _add_column(cur, "pending_users", "college",         "TEXT",    "''")
+            _add_column(cur, "pending_users", "full_name",       "TEXT",    "''")
+            _add_column(cur, "pending_users", "whatsapp_number", "TEXT",    "''")
+            _add_column(cur, "pending_users", "academic_year",   "INTEGER", "1")
+            _add_column(cur, "pending_users", "department",      "TEXT",    "'OC'")
+
         conn.commit()
     finally:
         conn.close()
+
+
+if __name__ == "__main__":
+    setup()
+    print("setup() complete")
