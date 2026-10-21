@@ -33,6 +33,7 @@ async function loadPending() {
             <input type="datetime-local" id="dt-${p.id}" style="margin:0;font-size:.75rem;padding:.35rem;" />
             <button class="ghost" data-action="schedule" data-id="${p.id}">Schedule</button>
             <button class="ok"    data-action="approve"  data-id="${p.id}">Approve</button>
+            <button class="ok"    data-action="approve-admin" data-id="${p.id}">Approve as Admin</button>
             <button class="danger" data-action="reject"  data-id="${p.id}">Reject</button>
           </div>
         </td>
@@ -59,8 +60,11 @@ $("pendingBody").addEventListener("click", async (e) => {
       });
       showMsg("Interview scheduled.");
     } else if (action === "approve") {
-      await api(`/admin/pending/${id}/approve`, { method: "POST" });
+      await api(`/admin/pending/${id}/approve?admin_approve=0`, { method: "POST" });
       showMsg("User approved.");
+    } else if (action === "approve-admin") {
+      await api(`/admin/pending/${id}/approve?admin_approve=1`, { method: "POST" });
+      showMsg("User approved as admin.");
     } else if (action === "reject") {
       if (!confirm("Reject this request?")) return;
       await api(`/admin/pending/${id}/reject`, { method: "POST" });
@@ -82,7 +86,7 @@ async function loadUsers() {
       return;
     }
     tbody.innerHTML = rows.map(u => `
-      <tr><td>${u.username}</td><td><span class="pill">${u.role}</span></td></tr>
+      <tr><td>${u.full_name}</td><td><span class="pill">${u.role}</span></td></tr>
     `).join("");
   } catch (e) {
     tbody.innerHTML = `<tr><td colspan="2" class="empty">Error: ${e.message}</td></tr>`;
