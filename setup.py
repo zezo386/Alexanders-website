@@ -25,10 +25,6 @@ def get_conn():
 
 
 def _add_column(cur, table: str, column: str, ddl_type: str, default_sql: str):
-    """
-    Add a column if it doesn't exist, backfill NULLs with `default_sql`,
-    then enforce NOT NULL. Idempotent — safe to run on every startup.
-    """
     cur.execute(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS {column} {ddl_type}")
     cur.execute(f"UPDATE {table} SET {column} = {default_sql} WHERE {column} IS NULL")
     cur.execute(f"ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL")
@@ -38,7 +34,6 @@ def setup():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            # --- Create tables (fresh DBs) ---
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     username        TEXT NOT NULL UNIQUE,

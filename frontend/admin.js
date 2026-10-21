@@ -117,7 +117,7 @@ $("createEventBtn").addEventListener("click", async () => {
   }
 });
 
-$("exportBtn").addEventListener("click", async () => {
+$("exportAttendanceBtn").addEventListener("click", async () => {
   try {
     const res = await fetch("/export_attendance", {
       headers: { "Authorization": `Bearer ${getToken()}` },
@@ -128,6 +128,24 @@ $("exportBtn").addEventListener("click", async () => {
     const a = document.createElement("a");
     a.href = url;
     a.download = "attendance.csv";
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    showMsg(e.message, "err");
+  }
+});
+
+$("exportUsersBtn").addEventListener("click", async () => {
+  try {
+    const res = await fetch("/export_users", {
+      headers: { "Authorization": `Bearer ${getToken()}` },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "users.csv";
     a.click();
     URL.revokeObjectURL(url);
   } catch (e) {
