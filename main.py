@@ -85,9 +85,9 @@ def signup(req: SignupRequest):
 
             user_id = str(uuid.uuid4())
             cur.execute(
-                "INSERT INTO pending_users (username, id, password_hash, national_id, college, full_name, whatsapp_number, academic_year, department)"
+                "INSERT INTO pending_users (username, id, password_hash, national_id, college, full_name, whatsapp_number, academic_year, department) "
                 "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-                (req.username, user_id, hash_password(req.password)),
+                (req.username, user_id, hash_password(req.password), req.national_id, req.college, req.full_name, req.whatsapp_number, req.academic_year, req.department),
             )
         conn.commit()
     finally:
@@ -337,34 +337,57 @@ def attend(req: AttendRequest, _admin: dict = Depends(admin_user)):
     finally:
         conn.close()
     return {"status": "attended", "user_id": req.user_id, "event_id": req.event_id}
-
 @app.get("/export_users")
 def export_users(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT * FROM users ORDER BY username")
+            cur.execute("""
+                SELECT full_name,
+                       role,
+                       department,
+                       college,
+                       academic_year,
+                       national_id,
+                       whatsapp_number
+                FROM users
+                ORDER BY username
+            """)
             users = cur.fetchall()
-
     finally:
         conn.close()
-    
+
     buf = io.StringIO()
     writer = csv.writer(buf)
 
-    header = ["full name", "role", "department", "college", "academic year", "national_id", "whatsapp number"]
-
+    header = [
+        "full name",
+        "role",
+        "department",
+        "college",
+        "academic year",
+        "national_id",
+        "whatsapp number",
+    ]
     writer.writerow(header)
+
     for user in users:
-        writer.writerow(user.values)
-    
+        writer.writerow([
+            user["full_name"],
+            user["role"],
+            user["department"],
+            user["college"],
+            user["academic_year"],
+            user["national_id"],
+            user["whatsapp_number"],
+        ])
+
     buf.seek(0)
     return StreamingResponse(
         iter([buf.getvalue()]),
         media_type="text/csv",
-        headers={"Content-Disposition": "attachment; filename=attendance.csv"},
+        headers={"Content-Disposition": "attachment; filename=users.csv"},
     )
-
 @app.get("/export_attendance")
 def export_csv(_admin: dict = Depends(admin_user)):
     conn = get_conn()
