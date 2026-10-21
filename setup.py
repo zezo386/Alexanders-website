@@ -16,33 +16,36 @@ def _database_url() -> str:
 
 
 def get_conn():
-    """
-    Open a fresh connection. Neon's pooler handles connection reuse,
-    so we don't need our own pool object.
-    """
     return psycopg.connect(
         _database_url(),
         row_factory=dict_row,
         connect_timeout=10,
-        sslmode="require",  # Neon and most managed PG require SSL
+        sslmode="require",
     )
 
 
 def setup():
-    """
-    Idempotent — safe to run on every cold start.
-    Uses CREATE TABLE IF NOT EXISTS, so running repeatedly does nothing.
-    """
     conn = get_conn()
     try:
         with conn.cursor() as cur:
+            cur.execute("DROP TABLE IF EXISTS users")
+            cur.execute("DROP TABLE IF EXISTS pending_users")
+            cur.execute("DROP TABLE IF EXISTS events")
+
+
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS users (
                     username      TEXT NOT NULL UNIQUE,
                     id            TEXT NOT NULL PRIMARY KEY,
                     password_hash TEXT NOT NULL,
                     role          TEXT NOT NULL DEFAULT 'user',
-                    created_at    TIMESTAMPTZ DEFAULT NOW()
+                    created_at    TIMESTAMPTZ DEFAULT NOW(),
+                    national_id   TEXT NOT NULL,
+                    college       TEXT NOT NULL,
+                    full_name     TEXT NOT NULL,
+                    whatsapp_number TEXT NOT NULL,
+                    academic_year INTEGER NOT NULL,
+                    department TEXT NOT NULL DEFAULT 'OC',
                 )
             """)
 
@@ -53,14 +56,20 @@ def setup():
                     password_hash TEXT NOT NULL,
                     requested_at  TIMESTAMPTZ DEFAULT NOW(),
                     interview_at  TIMESTAMPTZ,
-                    status        TEXT NOT NULL DEFAULT 'pending'
+                    status        TEXT NOT NULL DEFAULT 'pending',
+                    national_id   TEXT NOT NULL,
+                    college       TEXT NOT NULL,
+                    full_name     TEXT NOT NULL,
+                    whatsapp_number TEXT NOT NULL,
+                    academic_year INTEGER NOT NULL,
                 )
             """)
 
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS events (
                     name TEXT NOT NULL,
-                    id   SERIAL PRIMARY KEY
+                    id   SERIAL PRIMARY KEY,
+                    date TIMESTAMPTZ DEFAULT NOW(),
                 )
             """)
 
@@ -73,7 +82,6 @@ def setup():
                 )
             """)
 
-            # Index for the CSV export's join-heavy query
             cur.execute("""
                 CREATE INDEX IF NOT EXISTS idx_attendance_event
                 ON attendance (event_id)

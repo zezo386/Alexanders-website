@@ -34,7 +34,7 @@ def current_user(
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT id, username, role FROM users WHERE id = %s",
+                    "SELECT id, username, role, department FROM users WHERE id = %s",
                     (payload["sub"],),
                 )
                 row = cur.fetchone()
@@ -58,6 +58,7 @@ def current_user(
         "sub":      row["id"],
         "username": row["username"],
         "role":     row["role"],
+        "department":row["department"]
     }
 
 

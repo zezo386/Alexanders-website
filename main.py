@@ -17,11 +17,6 @@ from auth import create_token, hash_password, verify_password
 from deps import admin_user, current_user
 from setup import get_conn, setup
 
-
-# =========================================================
-# App + lifespan
-# =========================================================
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Runs on cold start. Creates tables if they don't exist.
@@ -40,14 +35,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-# =========================================================
-# Schemas
-# =========================================================
-
 class SignupRequest(BaseModel):
     username: str = Field(min_length=1, max_length=40)
     password: str = Field(min_length=4)
+    national_id: str = Field(min_length=14,max_length=15)
+    college: str
+    academic_year: int
+    full_name: str
+    whatsapp_number: str = Field(min_length=11,max_length=13)
+    department: str
+    
 
 
 class LoginRequest(BaseModel):
@@ -57,6 +54,7 @@ class LoginRequest(BaseModel):
 
 class EventRequest(BaseModel):
     name: str = Field(min_length=1, max_length=100)
+    date: str # ISO-8601
 
 
 class AttendRequest(BaseModel):
@@ -73,11 +71,6 @@ class AdminCreateUserRequest(BaseModel):
     password: str = Field(min_length=4)
     role: str = "user"
 
-
-# =========================================================
-# Auth
-# =========================================================
-
 @app.post("/signup")
 def signup(req: SignupRequest):
     conn = get_conn()
@@ -92,8 +85,8 @@ def signup(req: SignupRequest):
 
             user_id = str(uuid.uuid4())
             cur.execute(
-                "INSERT INTO pending_users (username, id, password_hash) "
-                "VALUES (%s, %s, %s)",
+                "INSERT INTO pending_users (username, id, password_hash, national_id, college, full_name, whatsapp_number, academic_year, department)"
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
                 (req.username, user_id, hash_password(req.password)),
             )
         conn.commit()
@@ -108,7 +101,7 @@ def login(req: LoginRequest):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, password_hash, role FROM users WHERE username = %s",
+                "SELECT id, username, password_hash, role, department FROM users WHERE username = %s",
                 (req.username,),
             )
             row = cur.fetchone()
@@ -119,7 +112,7 @@ def login(req: LoginRequest):
         raise HTTPException(401, "Invalid username or password")
 
     token = create_token(
-        user_id=row["id"], username=row["username"], role=row["role"]
+        user_id=row["id"], username=row["username"], role=row["role"], department=row["department"]
     )
     return {
         "access_token": token,
@@ -129,6 +122,7 @@ def login(req: LoginRequest):
             "id":       row["id"],
             "username": row["username"],
             "role":     row["role"],
+            "department":row["department"]
         },
     }
 
@@ -152,18 +146,13 @@ def me(user: dict = Depends(current_user)):
         "created_at": row["created_at"] if row else None,
     }
 
-
-# =========================================================
-# Admin — pending users
-# =========================================================
-
 @app.get("/admin/pending")
 def admin_list_pending(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT id, username, requested_at, interview_at, status
+                SELECT *
                 FROM pending_users
                 WHERE status = 'pending'
                 ORDER BY requested_at
@@ -201,12 +190,12 @@ def admin_schedule(
 
 
 @app.post("/admin/pending/{pending_id}/approve")
-def admin_approve(pending_id: str, _admin: dict = Depends(admin_user)):
+def admin_approve(pending_id: str, admin_approve: int = 0, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT username, password_hash FROM pending_users "
+                "SELECT username, password_hash, national_id, college, whatsapp_number, academic_year, full_name, department FROM pending_users "
                 "WHERE id = %s AND status = 'pending'",
                 (pending_id,),
             )
@@ -215,9 +204,9 @@ def admin_approve(pending_id: str, _admin: dict = Depends(admin_user)):
                 raise HTTPException(404, "Pending user not found")
 
             cur.execute(
-                "INSERT INTO users (username, id, password_hash, role) "
-                "VALUES (%s, %s, %s, 'user')",
-                (row["username"], pending_id, row["password_hash"]),
+                "INSERT INTO users (username, id, password_hash, role, national_id, college, whatsapp_number, academic_year, full_name, department) "
+                "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                (row["username"], pending_id, row["password_hash"],"admin" if admin_approve else "user", row["national_id"], row["college"], row["wahtsapp_number"], row["academic_year"], row["full_name"], row["department"]),
             )
             cur.execute(
                 "UPDATE pending_users SET status = 'approved' WHERE id = %s",
@@ -244,63 +233,25 @@ def admin_reject(pending_id: str, _admin: dict = Depends(admin_user)):
         conn.close()
     return {"status": "rejected"}
 
-
-# =========================================================
-# Admin — users
-# =========================================================
-
 @app.get("/users")
 def list_users(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, username, role, created_at FROM users ORDER BY username"
+                "SELECT * FROM users ORDER BY username"
             )
             rows = cur.fetchall()
     finally:
         conn.close()
     return rows
 
-
-@app.post("/admin/users")
-def admin_create_user(
-    req: AdminCreateUserRequest,
-    _admin: dict = Depends(admin_user),
-):
-    if req.role not in ("user", "admin"):
-        raise HTTPException(400, "role must be 'user' or 'admin'")
-
-    user_id = str(uuid.uuid4())
-
-    conn = get_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("SELECT 1 FROM users WHERE username = %s", (req.username,))
-            if cur.fetchone() is not None:
-                raise HTTPException(409, "Username already taken")
-
-            cur.execute(
-                "INSERT INTO users (username, id, password_hash, role) "
-                "VALUES (%s, %s, %s, %s)",
-                (req.username, user_id, hash_password(req.password), req.role),
-            )
-        conn.commit()
-    finally:
-        conn.close()
-    return {"username": req.username, "id": user_id, "role": req.role}
-
-
-# =========================================================
-# Events
-# =========================================================
-
 @app.get("/events")
 def list_events():
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute("SELECT id, name FROM events ORDER BY id")
+            cur.execute("SELECT * FROM events ORDER BY id")
             rows = cur.fetchall()
     finally:
         conn.close()
@@ -312,27 +263,20 @@ def create_event(req: EventRequest, _admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:
         with conn.cursor() as cur:
-            # Postgres uses RETURNING instead of lastrowid
             cur.execute(
-                "INSERT INTO events (name) VALUES (%s) RETURNING id",
-                (req.name,),
+                "INSERT INTO events (name, date) VALUES (%s, %s) RETURNING id",
+                (req.name, req.date),
             )
             event_id = cur.fetchone()["id"]
         conn.commit()
     finally:
         conn.close()
-    return {"name": req.name, "id": event_id}
-
-
-# =========================================================
-# QR codes
-# =========================================================
+    return {"name": req.name, "id": event_id, "date": req.date}
 
 ROLE_COLORS = {
     "admin": "#4f9cf9",
     "user":  "#059669",
 }
-
 
 @app.get("/qrcode/{user_id}")
 def get_qrcode(user_id: str, user: dict = Depends(current_user)):
@@ -372,11 +316,6 @@ def get_qrcode(user_id: str, user: dict = Depends(current_user)):
         headers={"Cache-Control": "no-store"},
     )
 
-
-# =========================================================
-# Attendance
-# =========================================================
-
 @app.post("/attend")
 def attend(req: AttendRequest, _admin: dict = Depends(admin_user)):
     conn = get_conn()
@@ -389,7 +328,6 @@ def attend(req: AttendRequest, _admin: dict = Depends(admin_user)):
             if cur.fetchone() is None:
                 raise HTTPException(404, "Event not found")
 
-            # Postgres equivalent of INSERT OR IGNORE
             cur.execute(
                 "INSERT INTO attendance (user_id, event_id) VALUES (%s, %s) "
                 "ON CONFLICT (user_id, event_id) DO NOTHING",
@@ -400,12 +338,34 @@ def attend(req: AttendRequest, _admin: dict = Depends(admin_user)):
         conn.close()
     return {"status": "attended", "user_id": req.user_id, "event_id": req.event_id}
 
+@app.get("/export_users")
+def export_users(_admin: dict = Depends(admin_user)):
+    conn = get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT * FROM users ORDER BY username")
+            users = cur.fetchall()
 
-# =========================================================
-# Export
-# =========================================================
+    finally:
+        conn.close()
+    
+    buf = io.StringIO()
+    writer = csv.writer(buf)
 
-@app.get("/export")
+    header = ["full name", "role", "department", "college", "academic year", "national_id", "whatsapp number"]
+
+    writer.writerow(header)
+    for user in users:
+        writer.writerow(user.values)
+    
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=attendance.csv"},
+    )
+
+@app.get("/export_attendance")
 def export_csv(_admin: dict = Depends(admin_user)):
     conn = get_conn()
     try:

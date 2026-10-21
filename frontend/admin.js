@@ -119,7 +119,7 @@ $("createEventBtn").addEventListener("click", async () => {
 
 $("exportBtn").addEventListener("click", async () => {
   try {
-    const res = await fetch("/export", {
+    const res = await fetch("/export_attendance", {
       headers: { "Authorization": `Bearer ${getToken()}` },
     });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);

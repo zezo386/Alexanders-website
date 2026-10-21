@@ -2,6 +2,7 @@
 Seed the database with a default admin, sample users, and events.
 
 Usage:
+    export DATABASE_URL="postgresql://...neon.tech/...?sslmode=require"
     python seed.py
 """
 
@@ -15,12 +16,12 @@ from setup import get_conn
 SEED_USERS = [
     # (username, password, role)
     ("admin",   "admin123", "admin"),
-    ("alice",   "pass1234", "user"),
-    ("bob",     "pass1234", "user"),
-    ("charlie", "pass1234", "user"),
-    ("diana",   "pass1234", "user"),
-    ("eve",     "pass1234", "user"),
-    ("frank",   "pass1234", "user"),
+    ("ahmed mohamed",   "pass1234", "user"),
+    ("youssef ashraf",     "pass1234", "user"),
+    ("mostafa elhalawany", "pass1234", "user"),
+    ("ammar",   "pass1234", "user"),
+    ("manar ayman",     "pass1234", "user"),
+    ("ziad elhusiny",   "pass1234", "user"),
 ]
 
 SEED_EVENTS = [
@@ -39,42 +40,51 @@ SEED_PENDING = [
 
 def seed_users(cur):
     for username, password, role in SEED_USERS:
-        cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
         if cur.fetchone() is not None:
             print(f"  · user '{username}' already exists, skipping")
             continue
+
         user_id = str(uuid.uuid4())
         cur.execute(
             "INSERT INTO users (username, id, password_hash, role) "
-            "VALUES (?, ?, ?, ?)",
+            "VALUES (%s, %s, %s, %s)",
             (username, user_id, hash_password(password), role),
         )
-        print(f"  + {role:5s} '{username}' -> {user_id}")
+        print(f"  + {role:5s} '{username}' -> {user_id}  (password: {password})")
 
 
 def seed_events(cur):
     for name in SEED_EVENTS:
-        cur.execute("SELECT 1 FROM events WHERE name = ?", (name,))
+        cur.execute("SELECT 1 FROM events WHERE name = %s", (name,))
         if cur.fetchone() is not None:
             print(f"  · event '{name}' already exists, skipping")
             continue
-        cur.execute("INSERT INTO events (name) VALUES (?)", (name,))
-        print(f"  + event '{name}' -> #{cur.lastrowid}")
+
+        cur.execute(
+            "INSERT INTO events (name) VALUES (%s) RETURNING id",
+            (name,),
+        )
+        event_id = cur.fetchone()["id"]
+        print(f"  + event '{name}' -> #{event_id}")
 
 
 def seed_pending(cur):
     for username, password in SEED_PENDING:
-        cur.execute("SELECT 1 FROM users WHERE username = ?", (username,))
+        cur.execute("SELECT 1 FROM users WHERE username = %s", (username,))
         if cur.fetchone() is not None:
             print(f"  · user '{username}' already approved, skipping")
             continue
-        cur.execute("SELECT 1 FROM pending_users WHERE username = ?", (username,))
+
+        cur.execute("SELECT 1 FROM pending_users WHERE username = %s", (username,))
         if cur.fetchone() is not None:
             print(f"  · pending '{username}' already exists, skipping")
             continue
+
         user_id = str(uuid.uuid4())
         cur.execute(
-            "INSERT INTO pending_users (username, id, password_hash) VALUES (?, ?, ?)",
+            "INSERT INTO pending_users (username, id, password_hash) "
+            "VALUES (%s, %s, %s)",
             (username, user_id, hash_password(password)),
         )
         print(f"  + pending '{username}' -> {user_id}")

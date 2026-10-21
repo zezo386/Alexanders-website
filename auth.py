@@ -18,12 +18,13 @@ def verify_password(plain: str, hashed: str) -> bool:
     except ValueError:
         return False
 
-def create_token(user_id: str, username: str, role: str) -> str:
+def create_token(user_id: str, username: str, role: str, department: str) -> str:
     now = datetime.now(timezone.utc)
     payload = {
         "sub": user_id,
         "username": username,
         "role": role,
+        "department":department,
         "iat": now,
         "exp": now + timedelta(hours=TOKEN_TTL_HOURS)
     }
