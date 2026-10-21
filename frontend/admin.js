@@ -25,7 +25,7 @@ async function loadPending() {
     for (const p of rows) {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${p.username}</td>
+        <td>${p.full_name}</td>
         <td>${new Date(p.requested_at).toLocaleString()}</td>
         <td>${p.interview_at ? new Date(p.interview_at).toLocaleString() : "—"}</td>
         <td>
